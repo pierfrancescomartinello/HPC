@@ -2,6 +2,33 @@ from typing import Any, List, Callable, Tuple, Dict, Set
 import math
 import random
 from copy import deepcopy
+import time
+import argparse
+import csv
+import glob
+import os
+
+# Parsing time
+parser = argparse.ArgumentParser(
+                        prog="Serial",
+                        description="The serial version of the collision code",
+                        epilog="Pacman Effect is real, at least in this code")
+
+
+parser.add_argument("-pn" , "--particle_number", action="store", required=True)
+parser.add_argument("-dt" , "--delta_t", action="store", required=True)
+parser.add_argument("-itn" , "--iteration_number", action="store", required=True)
+parser.add_argument("-r", "--range", action="store", required=True)
+parser.add_argument("-s", "--seed", required=False, default=False, action=argparse.BooleanOptionalAction)
+
+args = parser.parse_args()
+n = int(args.particle_number)
+temporal_delta = float(args.delta_t )
+p = int(args.iteration_number)
+max_range = int(args.range)
+
+if args.seed:
+    random.seed(n*temporal_delta*max_range*p)
 
 # Particle = ((x,y,z), (v_x, v_y, v_z))
 Particle = List[Tuple[float, float, float]]
@@ -57,6 +84,14 @@ def collision_angle(deltas:list,v:Particle):
         f=sum(deltas[i] * abs(v[1][i]) for i in range(len(deltas)))
         g= sum(i for i in deltas)
         h=sum(abs(j) for j in v[1])
+        if g*h == 0:
+            if g == 0:
+                g = 1
+            elif h == 0:
+                h = 1
+            else:
+                g = 1
+                h = 1
         return math.acos(math.sqrt(f/(g*h if g != 0 else h)))
     except ZeroDivisionError:
         print("You want to divide by zero\n", deltas, v, f,g,h)
@@ -66,27 +101,12 @@ def velocity_calculation(one:Particle,
                          two:Particle
 )-> Tuple[Particle, Particle]:
     
-    # (delta_x, delta_y, delta_z) = (abs(one[1][i] - two[1][i]) for i in range(3))
-    # ThreeDAngle_one = math.acos((delta_x * one[1][0] + delta_y * one[1][1] + delta_z* one[1][2])/(math.sqrt((delta_x + delta_y + delta_z)*(one[1][0] + one[1][1] + one[1][2]))))
-    # ThreeDAngle_two = math.acos((delta_x * two[1][0] + delta_y * two[1][1] + delta_z* two[1][2])/(math.sqrt((delta_x + delta_y + delta_z)*(two[1][0] + two[1][1] + two[1][2]))))
-    # v_center_one = scalar_product(one[1], math.cos(ThreeDAngle_one))
-    # v_center_two = scalar_product(two[1], math.cos(ThreeDAngle_two))
-    # xy, xz, yz = axis_components(one[1], two[1])
-    # v_center_one = (dot_product(v_center_one, math.sin(xz) * math.cos(xy)), dot_product(v_center_one, math.sin(xz) * math.sin(xy)), dot_product(v_center_one, math.cos(xz)))
-    # v_center_two = (dot_product(v_center_two, math.sin(xz) * math.cos(xy)), dot_product(v_center_two, math.sin(xz) * math.sin(xy)), dot_product(v_center_two, math.cos(xz)))
-    # v_normal_one = diff(one[1], v_center_one)
-    # v_normal_two = diff(two[1], v_center_two)
-    # v_center_one, v_center_two = v_center_two, v_center_one
-    # one[1] = add(v_normal_one, v_center_one)
-    # two[1] = add(v_normal_two, v_center_two)
+
 
 
     (delta_x, delta_y, delta_z) = (abs(one[0][i] - two[0][i]) for i in range(3))
     TD_Angle_1 = collision_angle((delta_x, delta_y, delta_z),one)
     TD_Angle_2 = collision_angle((delta_x, delta_y, delta_z),two)
-    if (TD_Angle_1 and TD_Angle_2) == False:
-        print(one, two)
-        exit()
     v_center_one = scalar_product(one[1], math.cos(TD_Angle_1))
     v_center_two = scalar_product(two[1], math.cos(TD_Angle_2))
     v_normal_one = diff(one[1], v_center_one)
@@ -147,39 +167,55 @@ def random_particles(number_of_particles:int,
         part_dict[i] = temp
     return part_dict
 
-def coordinates_update(v:Particle,temporal_delta:float):
+def coordinates_update(v:Particle,temporal_delta:float, max_range:int | float):
     new_coord = list()
     for i in range(len(v[0])):
-        new_coord.append(((v[0])[i] + temporal_delta *(v[1])[i]))
+        new_coord.append(((v[0])[i] + temporal_delta *(v[1])[i]) % max_range)
     return [tuple(new_coord), v[1]]
 
 
-temporal_delta = 1 # 1 Update(s) a second
-n = 100
+filename = f'{os.getcwd()}/serial/serial--{n}-{p}-{str(temporal_delta).replace(".","+")}-{max_range}.csv'
+counter = len([file for file in glob.glob(filename)])
+if counter > 0:
+    filename = filename[:-4] + f"({counter}).csv"
 
-f = random_particles(100,(0,5),(0,5),(0,5),0.57,0.86,0.76)
+f = open(filename, "x")
+f.close()
 
-# 
-for k,v in f.items():
-    print(k, v)
+f = random_particles(p,(0,max_range),(0,max_range),(0,max_range),0.57,0.86,0.76)
+with open(filename, "w+", newline="") as file:
+    writer = csv.writer(file)
+    writer.writerow(['Iteration', 'Exec time for clustering', 'Exec time for vectors calculation', 'Exec time for collisions', "Number of clusters", "Numbers of collisions"])
+    for iteration in range(n):
+        g_start_time = time.time()
+        g = particles_within_delta(f, 0.3)
+        g_end_time = time.time()
 
-for _ in range(n):
-    g = particles_within_delta(f, 0.3)
-    for v in g:
-        if len(v) == 2:
-            temp1 , temp2 = v[0],v[1]
-            v_1, v_2 = velocity_calculation(f[v[0]],f[v[1]])
-            f[v[0]] = [f[temp1][0],v_1]
-            f[v[1]] = [f[temp2][0],v_2]
-            pass
-        else:
-            sorted_dict = sorted(v, key=lambda x: f[x][1])
-            for i in range(len(v) -1):
-                temp1, temp2 = sorted_dict[i],sorted_dict[i+1]
-                v_1, v_2 = velocity_calculation(f[sorted_dict[i]],f[sorted_dict[i+1]])
-                f[sorted_dict[i]] = [f[temp1][0],v_1]
-                f[sorted_dict[i+1]] = [f[temp2][0],v_2]
+        v_start_time = time.time()
+        for v in g:
+            if len(v) == 2:
+                temp1 , temp2 = v[0],v[1]
+                v_1, v_2 = velocity_calculation(f[v[0]],f[v[1]])
+                f[v[0]] = [f[temp1][0],v_1]
+                f[v[1]] = [f[temp2][0],v_2]
+                pass
+            else:
+                sorted_dict = sorted(v, key=lambda x: f[x][1])
+                for i in range(len(v) -1):
+                    temp1, temp2 = sorted_dict[i],sorted_dict[i+1]
+                    v_1, v_2 = velocity_calculation(f[sorted_dict[i]],f[sorted_dict[i+1]])
+                    f[sorted_dict[i]] = [f[temp1][0],v_1]
+                    f[sorted_dict[i+1]] = [f[temp2][0],v_2]
 
+        v_end_time = time.time()
 
-    for k,v in f.items():
-        f[k] = coordinates_update(v, temporal_delta)
+        c_start_time = time.time()
+
+        for k,v in f.items():
+            f[k] = coordinates_update(v, temporal_delta, max_range)
+
+        c_end_time = time.time()
+        colliding_particles = sum(len(v) for v in g)
+        to_write = [iteration+1, round(g_end_time-g_start_time, 4), round(v_end_time -v_start_time,4), round(c_end_time -c_start_time), len(g), colliding_particles]
+
+        writer.writerow(to_write)
