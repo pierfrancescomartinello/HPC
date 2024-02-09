@@ -175,7 +175,7 @@ def coordinates_update(v:Particle,temporal_delta:float, max_range:int | float):
 
 
 filename = f'{os.getcwd()}/serial/serial--{n}-{p}-{str(temporal_delta).replace(".","+")}-{max_range}.csv'
-counter = len([file for file in glob.glob(filename)])
+counter = len([file for file in glob.glob(filename[:-4] +"*" +".csv")])
 if counter > 0:
     filename = filename[:-4] + f"({counter}).csv"
 
@@ -216,6 +216,6 @@ with open(filename, "w+", newline="") as file:
 
         c_end_time = time.time()
         colliding_particles = sum(len(v) for v in g)
-        to_write = [iteration+1, round(g_end_time-g_start_time, 4), round(v_end_time -v_start_time,4), round(c_end_time -c_start_time), len(g), colliding_particles]
+        to_write = [iteration+1, round(g_end_time-g_start_time, 4), round(v_end_time -v_start_time,4), round(c_end_time -c_start_time,4), len(g), colliding_particles]
 
         writer.writerow(to_write)
