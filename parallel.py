@@ -1,4 +1,5 @@
 from mpi4py import MPI
+import numpy as np
 from typing import Any, List, Callable, Tuple, Dict, Set
 import math
 import random
@@ -8,6 +9,7 @@ import argparse
 import csv
 import glob
 import os
+
 Particle = List[Tuple[float, float, float]]
 
 #Each task can access those functions
@@ -216,57 +218,60 @@ def rank_0_functions():
 
 
 
-def main():
+if __name__ == "__main__":
     # MPI startup
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
 
+    Particle = List[Tuple[float, float, float]]
     # Initialization of the command line arguments
-    parsing_list = init(rank)
+    parsing_list = init()
 
     # This is done only one time at the beginning of the execution of task 0 
     if rank == 0: # Rank zero initiate the population of particles and sets up the logging
     
         #Gets the function name of those function only he can access
         particles_within_delta, random_particles, coordinates_update, divide_list = rank_0_functions()
+        dict_reconstruction_time, g_time, vel_calc_time, tot_time , oth_task_time = 0,0,0,0,0
         #Calulates the random population of particle
         f = random_particles(parsing_list[1], (0,parsing_list[2]),(0,parsing_list[2]),(0,parsing_list[2]), 0.57,0.86,0.76)
 
         #Logging Stuff
-        filename = f'{os.getcwd()}/parallel/parallel--{parsing_list}-{parsing_list[1]}-{str(parsing_list[3]).replace(".","+")}-{parsing_list[2]}.csv'
-        counter = len([file for file in glob.glob(filename[:-4] +"*" +".csv")])
-        if counter > 0:
-            filename = filename[:-4] + f"({counter}).csv"
-        
-        file = open(filename, "x")
-        file.close()
-        
-        file = open(filename, "w+", newline="")
-        writer = csv.writer(file)
-        writer.writerow(["Iteration", "Total Time", "Clustering time", "Vel Calculation Time", "Dictionary Reconstruction Time", "Communication time", "Number of clusters", "Number of collisions"])
+        # filename = f'{os.getcwd()}/parallel/parallel--{size}-{parsing_list}.csv'
+        # counter = len([file for file in glob.glob(filename[:-4] +"*" +".csv")])
+        # if counter > 0:
+        #     filename = filename[:-4] + f"({counter}).csv"
+        # 
+        # file = open(filename, "x")
+        # file.close()
+        # 
+        # file = open(filename, "w+", newline="")
+        # writer = csv.writer(file)
+        # writer.writerow(["Iteration", "Total Time", "Clustering time", "Vel Calculation Time", "Dictionary Reconstruction Time", "Communication time", "Number of clusters", "Number of collisions"])
     
     
-    for iteration in range(parsing_list[0]):
         start_time = time.time() # Starting time for each interaction
-
+    for iteration in range(parsing_list[0]):
+        
         if rank == 0: # Rank zero calculates the clusters and sends the correspective part to the other tasks
             g_start_time = time.time()
             g = particles_within_delta(f, 0.3) # Cluster calculation
             g_end_time = time.time()
 
-            numb_of_collisions = sum([len(f)] for f in g) # Logging data 
+            numb_of_collisions = sum([len(f) for f in g]) # Logging data 
             numb_of_clusters = len(g)
             g_end_time_for_sure = time.time()
 
             portions = divide_list(g, size) # The list of clusters is portioned and sent
             for index, i in enumerate(portions[1:]):
-                comm.send((f, i), dest = index+1, tag = hash(f"Source:{0}-Dest:{index+1}"))
+                comm.send((f, i), dest = index+1, tag = index+1+rank)
 
             g = deepcopy(portions[0])
         else: # Receives data from task 0
-            (f, g) = comm.recv(source=0, tag=hash(f"Source:{0}-Dest:{rank}"))
-        
+            (f,g) = comm.recv(source=0, tag=rank + 0)
+
+
         # Each task does this with its own portion of data
         vel_calc_start_time = time.time()
         for v in g:
@@ -285,34 +290,39 @@ def main():
                     f[sorted_dict[i+1]] = [f[temp2][0],v_2]
         vel_calc_end_time = time.time()
 
-        if rank != 0:# other tasks send their results to the task 0
-            comm.send((f, vel_calc_end_time -vel_calc_start_time), dest=0, tag = hash(f"Source:{rank}-Dest:{0}"))
+        if rank != 0: # other tasks send their results to the task 0
+            comm.send((f, vel_calc_end_time -vel_calc_start_time), dest=0, tag = rank + 0)
         else:
-            communications= []
-            oth_task_time = 0
+            communications = list()
+            
             for i in range(1, size):
-                communic = comm.recv(source=i, tag = hash(f"Source:{i}-Dest:{0}")) # Task 0 receives the data
-                communications.append(communic[0]) # and the total amount of time they took
-                oth_task_time += communic[1]
+                (f,t) = comm.recv(source=i, tag= i+0)
+                communications.append(f) # and the total amount of time they took
+                oth_task_time += t
             communications.insert(0, deepcopy(f))
 
-            f = {}
+            f = dict()
             dict_reconstruction_start_time = time.time()
-            for k in len(communications[0]):
+            for k in range(len(communications[0])):
                 k_particles = [i[k+1] for i in communications] 
                 # The velocity of each particle is the highest from what the tasks yielded
                 get_fastest_velocity = sorted(k_particles, key= lambda x: (x[1][0]**2 + x[1][1]**2 + x[1][2]**2)**0.5)[0]
                 # The coordinates are upgraded
                 f[k+1] = coordinates_update(get_fastest_velocity, parsing_list[3], parsing_list[2])
             dict_reconstruction_end_time = time.time()
-        end_time = time.time()
 
         # Miscellaneous logging stuff
-        dict_reconstruction_time = dict_reconstruction_end_time-dict_reconstruction_start_time
-        g_time = g_end_time - g_start_time
-        vel_calc_time = vel_calc_end_time -vel_calc_start_time
-        tot_time =  end_time- start_time
-        misc_time = g_end_time_for_sure - g_end_time
+    if rank == 0:
+        end_time = time.time()
+        dict_reconstruction_time += dict_reconstruction_end_time-dict_reconstruction_start_time
+        g_time += g_end_time - g_start_time
+        vel_calc_time += vel_calc_end_time -vel_calc_start_time
+        tot_time +=  end_time- start_time
+        print(oth_task_time)
+            # writer.writerow([iteration+1, tot_time, g_time, vel_calc_time + oth_task_time, dict_reconstruction_time, tot_time - (dict_reconstruction_time +g_time+vel_calc_time+misc_time), numb_of_clusters, numb_of_collisions])
 
-        writer.writerow([iteration+1, tot_time, g_time, vel_calc_time + oth_task_time, dict_reconstruction_time, tot_time - (dict_reconstruction_time +g_time+vel_calc_time+misc_time), numb_of_clusters, numb_of_collisions])
-    if rank == 0: file.close()
+    if rank == 0: 
+        # file.close()
+        
+        print("Total time, Clustering time, Velocity calculation time, Dict Reconstruction time, Other Time (communication mainly) ")
+        print(tot_time, g_time, vel_calc_time + oth_task_time, dict_reconstruction_time, tot_time - (dict_reconstruction_time +g_time+vel_calc_time+oth_task_time))

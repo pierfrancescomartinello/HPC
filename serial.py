@@ -174,14 +174,15 @@ def coordinates_update(v:Particle,temporal_delta:float, max_range:int | float):
     return [tuple(new_coord), v[1]]
 
 
-filename = f'{os.getcwd()}/serial/serial--{n}-{p}-{str(temporal_delta).replace(".","+")}-{max_range}.csv'
+filename = f'{os.getcwd()}/serial/serial--{[n, p, temporal_delta,]}.csv'
 counter = len([file for file in glob.glob(filename[:-4] +"*" +".csv")])
 if counter > 0:
     filename = filename[:-4] + f"({counter}).csv"
 
 f = open(filename, "x")
 f.close()
-
+clustering_time , velocity_update_time, collision_time= 0,0,0
+total_start_time = time.time()
 f = random_particles(p,(0,max_range),(0,max_range),(0,max_range),0.57,0.86,0.76)
 with open(filename, "w+", newline="") as file:
     writer = csv.writer(file)
@@ -190,6 +191,7 @@ with open(filename, "w+", newline="") as file:
         g_start_time = time.time()
         g = particles_within_delta(f, 0.3)
         g_end_time = time.time()
+        clustering_time += g_end_time - g_start_time
 
         v_start_time = time.time()
         for v in g:
@@ -208,14 +210,19 @@ with open(filename, "w+", newline="") as file:
                     f[sorted_dict[i+1]] = [f[temp2][0],v_2]
 
         v_end_time = time.time()
-
+        velocity_update_time += v_end_time -v_start_time
         c_start_time = time.time()
 
         for k,v in f.items():
             f[k] = coordinates_update(v, temporal_delta, max_range)
 
         c_end_time = time.time()
+        collision_time += c_end_time - c_start_time
         colliding_particles = sum(len(v) for v in g)
         to_write = [iteration+1, round(g_end_time-g_start_time, 4), round(v_end_time -v_start_time,4), round(c_end_time -c_start_time,4), len(g), colliding_particles]
 
         writer.writerow(to_write)
+
+    total_end_time = time.time()
+
+print(total_end_time-total_start_time, clustering_time, velocity_update_time, collision_time)
